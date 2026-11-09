@@ -1,0 +1,1 @@
+powershell -ExecutionPolicy Bypass -File "C:\Users\grafik.user2\Desktop\Calisma\Y\indirilenlerDosyaAdlandirma.ps1"
