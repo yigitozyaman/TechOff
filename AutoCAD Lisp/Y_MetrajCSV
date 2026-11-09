@@ -1,0 +1,234 @@
+;;; --- GELİŞMİŞ METRAJ AKTARMA VE NUMARALANDIRMA (CSV) ---
+(defun c:Y_MetrajCSV ( / ss i ent obj objType len area tLen tArea tCount itemCount polyIdx
+                         dwgPrefix filepath file isNewFile metrajAdi validName colorChoice colorIndex 
+                         addTextChoice acadDoc layersColl mSpace dwgName 
+                         polyLayer textLayerName targetLayer insPt numStr mtextText mObj 
+                         valLen valArea strLen strArea strTLen strTArea 
+                         minPt maxPt targetPt textHeight isClosed )
+  (vl-load-com)
+
+  ;; Sabit yazı yüksekliği (İhtiyaca göre buradan değiştirilebilir)
+  (setq textHeight 5.0)
+
+  (princ "\nMetrajı çıkarılacak objeleri seçin (Polyline, Circle, Text, MText, Block): ")
+  ;; LWPOLYLINE (Rectangle dahil), POLYLINE, CIRCLE, MTEXT, TEXT ve INSERT (Blok) seçimine izin verir
+  (setq ss (ssget '((0 . "LWPOLYLINE,POLYLINE,CIRCLE,MTEXT,TEXT,INSERT"))))
+
+  (if ss
+    (progn
+      ;; 1. Kullanıcıdan Metraj Adı Al (+, -, =, ; vb. özel karakter kontrolü ile)
+      (setq validName nil)
+      (while (not validName)
+        (setq metrajAdi (getstring t "\nMetraj adı / tanımı girin: "))
+        (if (= metrajAdi "")
+          (progn
+            (setq metrajAdi "Isimsiz_Metraj")
+            (setq validName T)
+          )
+          ;; Excel'de formül veya sütun hatasına yol açabilecek karakterleri engelle
+          (if (vl-some '(lambda (ch) (vl-string-search ch metrajAdi)) '("+" "-" "=" ";" "*" "/" "@"))
+            (princ "\nUYARI: Excel uyumluluğu için metraj adında (+, -, =, ;, *, /, @) karakterleri kullanılamaz. Lütfen tekrar girin.")
+            (setq validName T)
+          )
+        )
+      )
+
+      ;; 2. Renk Seçimi Al (Görsel menüde de GRay önce gelir, böylece GR yazılınca nokta GRay üzerinde durur)
+      (initget "White GRay Green Red")
+      (setq colorChoice (getkword "\nSeçilen objelerin yeni rengi [White/GRay/Green/Red] <White>: "))
+      (if (not colorChoice) (setq colorChoice "White"))
+      (setq colorIndex
+        (cond
+          ((= colorChoice "White") 7)
+          ((= colorChoice "Green") 3)
+          ((= colorChoice "Red")   1)
+          ((= colorChoice "GRay")  8)
+          (t 7)
+        )
+      )
+
+      ;; 3. Yazı Ekleme Tercihi Al (Temiz Evet/Hayır Seçeneği)
+      (initget "Evet Hayir")
+      (setq addTextChoice (getkword "\nMetraj adı nesnelere eklensin mi? [Evet/Hayir] <Evet>: "))
+      (if (not addTextChoice) (setq addTextChoice "Evet"))
+
+      ;; AutoCAD Belge ve ModelSpace Tanımları
+      (setq acadDoc (vla-get-activedocument (vlax-get-acad-object)))
+      (setq layersColl (vla-get-layers acadDoc))
+      (setq mSpace (vla-get-modelspace acadDoc))
+
+      ;; Undo Başlangıcı (Tek seferde geri alabilmek için)
+      (vla-startundomark acadDoc)
+
+      ;; Dosya Yolu ve Adı Belirleme (Aktif DWG dosyasının bulunduğu klasör)
+      (setq dwgName (vl-filename-base (getvar "DWGNAME")))
+      (if (= (getvar "DWGTITLED") 1)
+        (setq dwgPrefix (getvar "DWGPREFIX"))
+        (setq dwgPrefix (strcat (getenv "USERPROFILE") "\\Desktop\\"))
+      )
+      (setq filepath (strcat dwgPrefix dwgName "_metraj.csv"))
+
+      ;; Dosya daha önce var mı kontrol et (Başlık satırı eklemek için)
+      (setq isNewFile (not (findfile filepath)))
+      (setq file (open filepath "a"))
+
+      ;; Eğer yeni dosyaysa en üste sütun başlıklarını yaz
+      (if (and file isNewFile)
+        (write-line "Metraj Adı;Uzunluk (mt);Alan (m2);Adet" file)
+      )
+
+      ;; Sayaçları Sıfırla
+      (setq tLen 0.0
+            tArea 0.0
+            tCount 0
+            itemCount 0
+            polyIdx 0
+            i 0)
+
+      ;; Seçilen Objeleri Döngüye Sok
+      (while (< i (sslength ss))
+        (setq ent (ssname ss i))
+        (setq obj (vlax-ename->vla-object ent))
+        (setq objType (vla-get-objectname obj))
+
+        ;; Seçilen objenin rengini değiştir
+        (vla-put-color obj colorIndex)
+
+        (cond
+          ;; --- DURUM A: MTEXT, TEXT ve BLOCK (INSERT) OBJELERİ (Sadece Adet Sayılır, Tek Satırda Yazılır) ---
+          ((or (= objType "AcDbMText") (= objType "AcDbText") (= objType "AcDbBlockReference"))
+           (setq itemCount (1+ itemCount))
+           (setq tCount (1+ tCount))
+          )
+
+          ;; --- DURUM B: POLYLINE VE CIRCLE OBJELERİ ---
+          ((or (= objType "AcDbPolyline") (= objType "AcDb2dPolyline") (= objType "AcDbCircle"))
+           (setq tCount (1+ tCount))
+           (setq polyIdx (1+ polyIdx))
+
+           ;; Kapalılık Kontrolü (Closed=Yes VEYA Başlangıç ve Bitiş Noktası Üst Üste ise)
+           (if (= objType "AcDbCircle")
+             (setq isClosed T)
+             (setq isClosed
+               (or (= (vla-get-closed obj) :vlax-true)
+                   (equal (vlax-curve-getStartPoint obj) (vlax-curve-getEndPoint obj) 1e-3)
+               )
+             )
+           )
+
+           ;; Uzunluk ve Alan Hesabı (Açık Polyline ise Alan = 0.0)
+           (if (= objType "AcDbCircle")
+             (progn
+               (setq len (vla-get-circumference obj))
+               (setq area (vla-get-area obj))
+             )
+             (progn
+               (setq len (vla-get-length obj))
+               (if isClosed
+                 (setq area (vla-get-area obj))
+                 (setq area 0.0)
+               )
+             )
+           )
+
+           (setq tLen (+ tLen len))
+           (setq tArea (+ tArea area))
+
+           ;; Birim Dönüşümleri (cm -> mt ve cm² -> m²)
+           (setq valLen (/ len 100.0))
+           (setq valArea (/ area 10000.0))
+           (setq strLen (vl-string-subst "," "." (rtos valLen 2 2)))
+           (setq strArea (vl-string-subst "," "." (rtos valArea 2 2)))
+
+           ;; Numaralandırma Metni (Örn: kolon_1, kolon_2)
+           (setq numStr (itoa polyIdx))
+           (setq mtextText (strcat metrajAdi "_" numStr))
+
+           ;; Kullanıcı "Evet" dediyse nesne üzerine MText ekle
+           (if (= addTextChoice "Evet")
+             (progn
+               (setq polyLayer (vla-get-layer obj))
+               (setq textLayerName (strcat polyLayer "_yazi"))
+
+               ;; Katman kontrolü ve oluşturma
+               (setq targetLayer (vl-catch-all-apply 'vla-item (list layersColl textLayerName)))
+               (if (vl-catch-all-error-p targetLayer)
+                 (setq targetLayer (vla-add layersColl textLayerName))
+               )
+
+               ;; --- Yazı Noktası Hesabı (Kapalıysa tam ortasına, açıksa çizgi ortasına temas ederek) ---
+               (if isClosed
+                 (progn
+                   ;; Kapalı Polyline, Rectangle veya Circle ise: Tam geometrik merkezine koy
+                   (vla-getboundingbox obj 'minPt 'maxPt)
+                   (setq minPt (vlax-safearray->list minPt))
+                   (setq maxPt (vlax-safearray->list maxPt))
+                   (setq targetPt (list (/ (+ (car minPt) (car maxPt)) 2.0)
+                                        (/ (+ (cadr minPt) (cadr maxPt)) 2.0)
+                                        (caddr minPt)))
+                 )
+                 (progn
+                   ;; Açık Polyline ise: Eğrinin tam orta uzunluğundaki (orta noktasındaki) temas noktasını al
+                   (setq targetPt (vlax-curve-getPointAtDist obj (/ len 2.0)))
+                 )
+               )
+
+               (setq insPt (vlax-3d-point targetPt))
+               (setq mObj (vla-addmtext mSpace insPt 0.0 mtextText))
+               (vla-put-attachmentpoint mObj 5) ; Orta-Orta hizalama
+               (vla-put-height mObj textHeight) ; Sabit yazı boyutu (5.0)
+               (vla-put-layer mObj textLayerName)
+             )
+           )
+
+           ;; CSV dosyası açıksa satırı yaz (Adet sütunu boş bırakılır -> ";")
+           (if file
+             (write-line (strcat mtextText ";" strLen ";" strArea ";") file)
+           )
+          )
+        )
+        (setq i (1+ i))
+      )
+
+      ;; --- MTEXT, TEXT ve BLOCK Objeleri Varsa Tek Satırda Toplam Adet Yaz (Uzunluk ve Alan boş) ---
+      (if (and (> itemCount 0) file)
+        (write-line (strcat metrajAdi ";;;" (itoa itemCount)) file)
+      )
+
+      ;; Toplam Değerleri Formatla
+      (setq strTLen (vl-string-subst "," "." (rtos (/ tLen 100.0) 2 2)))
+      (setq strTArea (vl-string-subst "," "." (rtos (/ tArea 10000.0) 2 2)))
+
+      ;; --- En Alt Satıra Toplamları Yaz (Sadece Polyline/Circle seçildiyse TOPLAM satırı eklenir) ---
+      (if file
+        (progn
+          (if (> polyIdx 0)
+            (write-line (strcat "TOPLAM;" strTLen ";" strTArea ";" (itoa tCount)) file)
+          )
+          ;; Bir sonraki metraj aktarımı ile karışmaması için 1 satır boşluk bırak
+          (write-line ";;;" file)
+          (close file)
+          (princ (strcat "\n=========================================="))
+          (princ (strcat "\nVeriler başarıyla kaydedildi: " filepath))
+        )
+        (progn
+          (princ (strcat "\n=========================================="))
+          (princ (strcat "\nUYARI: " dwgName "_metraj.csv dosyası başka bir programda açık olduğu için dosyaya yazılamadı!"))
+        )
+      )
+
+      ;; --- Dosya Açık da Olsa Kapalı da Olsa Komut Satırında Özeti Göster ---
+      (princ (strcat "\nTotal Uzunluk : " strTLen " mt"))
+      (princ (strcat "\nTotal Alan    : " strTArea " m2"))
+      (princ (strcat "\nTotal Adet    : " (itoa tCount)))
+      (princ (strcat "\n=========================================="))
+
+      (vla-endundomark acadDoc)
+    )
+    (princ "\nHiçbir geçerli obje seçilmedi.")
+  )
+  (princ)
+)
+
+(princ "\nKomut Yüklendi: Y_MetrajCSV")
+(princ)
