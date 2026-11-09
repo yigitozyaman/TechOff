@@ -1,0 +1,70 @@
+;;; --- Y_AddLayer: Ön Tanımlı Katmanlar, Y_Metraj Aktifleştirme ve Hafif LWeight Açma ---
+(defun c:Y_AddLayer ( / acadDoc layersColl layerNames layerColors i lName colCode targetLayer exists metrajLayer)
+  (vl-load-com)
+  
+  (setq acadDoc (vla-get-activedocument (vlax-get-acad-object)))
+  (setq layersColl (vla-get-layers acadDoc))
+  
+  ;; Layer isimleri ve AutoCAD renk kodları (Yellow:2, Cyan:4, Blue:5, Magenta:6, Green:3, White:7, Red:1, Gray:8)
+  (setq layerNames  '("Y_Metraj" "Y_1" "Y_2" "Y_3" "Y_4" "Y_5" "Y_6" "Y_7"))
+  (setq layerColors '(2          4     5     6     3     7     1     8))
+  
+  ;; Katmanların tamamı var mı kontrol et
+  (setq exists T)
+  (setq i 0)
+  (while (< i (length layerNames))
+    (setq lName (nth i layerNames))
+    (if (vl-catch-all-error-p (vl-catch-all-apply 'vla-item (list layersColl lName)))
+      (setq exists nil)
+    )
+    (setq i (1+ i))
+  )
+  
+  (if exists
+    (princ "\nBilgi: Bu katmanlar daha önce eklenmiştir.")
+    (progn
+      ;; Katmanları oluşturma döngüsü
+      (setq i 0)
+      (while (< i (length layerNames))
+        (setq lName (nth i layerNames))
+        (setq colCode (nth i layerColors))
+        
+        (setq targetLayer (vl-catch-all-apply 'vla-item (list layersColl lName)))
+        (if (vl-catch-all-error-p targetLayer)
+          (progn
+            (setq targetLayer (vla-add layersColl lName))
+            
+            ;; Kalınlık 0.8 mm (acLnWt080)
+            (vla-put-lineweight targetLayer acLnWt080)
+            
+            ;; Renk ataması
+            (vla-put-color targetLayer colCode)
+            
+            ;; Çizgi tipi
+            (vla-put-linetype targetLayer "Continuous")
+          )
+        )
+        (setq i (1+ i))
+      )
+      (princ "\nBaşarılı: Tüm ön tanımlı katmanlar (0.8mm, Continuous) oluşturuldu.")
+    )
+  )
+  
+  ;; Y_Metraj katmanını her koşulda aktif (current) katman yap
+  (setq metrajLayer (vl-catch-all-apply 'vla-item (list layersColl "Y_Metraj")))
+  (if (not (vl-catch-all-error-p metrajLayer))
+    (progn
+      (vla-put-activelayer acadDoc metrajLayer)
+      (princ "\n-> Geçerli katman (Current Layer) 'Y_Metraj' olarak ayarlandı.")
+    )
+  )
+  
+  ;; Kasma yapmadan sadece lineweight display özelliğini aç
+  (setvar "LWDISPLAY" 1)
+  (princ "\n-> LWeight (Çizgi Kalınlığı Gösterimi) aktif duruma getirildi.")
+  
+  (princ)
+)
+
+(princ "\nKomut Yüklendi: Y_AddLayer")
+(princ)
