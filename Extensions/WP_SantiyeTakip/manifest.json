@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Şantiye Günlük Rapor Arşivleyici",
+  "version": "2.1",
+  "description": "WhatsApp Web gruplarından tarih aralığına göre şantiye fotoğraflarını ve açıklamalarını arşivler.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
