@@ -1,0 +1,90 @@
+Function ÇaprazAra(ArananDeger As Variant, ArananDizi As Range, SonucDizisi As Range, Optional Bulunamadi As Variant, Optional EslestirmeModu As Integer = 0, Optional AramaModu As Integer = 1) As Variant
+    Dim arrAranan As Variant
+    Dim arrSonuc As Variant
+    Dim i As Long, toplamSatir As Long, toplamSutun As Long
+    Dim baslangic As Long, bitis As Long, adim As Long
+    Dim bulundu As Boolean
+    
+    ' Aralıkları diziye aktararak performansı en üst düzeye çıkarıyoruz
+    arrAranan = ArananDizi.Value
+    arrSonuc = SonucDizisi.Value
+    
+    ' Tek hücre veya çok boyutlu dizi kontrolü
+    If Not IsArray(arrAranan) Then
+        ReDim arrAranan(1 To 1, 1 To 1)
+        arrAranan(1, 1) = ArananDizi.Value
+    End If
+    If Not IsArray(arrSonuc) Then
+        ReDim arrSonuc(1 To 1, 1 To 1)
+        arrSonuc(1, 1) = SonucDizisi.Value
+    End If
+    
+    toplamSatir = UBound(arrAranan, 1)
+    toplamSutun = UBound(arrAranan, 2)
+    
+    ' Arama Yönünü Belirleme (1: Baştan Sona, -1: Sondan Başa)
+    If AramaModu = -1 Then
+        baslangic = toplamSatir: bitis = 1: adim = -1
+    Else
+        baslangic = 1: bitis = toplamSatir: adim = 1
+    End If
+    
+    bulundu = False
+    
+    ' Döngü ile arama
+    Dim r As Long, c As Long
+    For r = baslangic To bitis Step adim
+        For c = 1 To toplamSutun
+            Dim hucreDegeri As Variant
+            hucreDegeri = arrAranan(r, c)
+            
+            ' Eşleşme Modları Kontrolü
+            Select Case EslestirmeModu
+                Case 0 ' Tam Eşleşme
+                    If LCase(CStr(hucreDegeri)) = LCase(CStr(ArananDeger)) Then
+                        bulundu = True: Exit For
+                    End If
+                Case 1 ' Tam eşleşme yoksa sonraki küçük değer (Yaklaşık)
+                    ' Gerekirse eklenebilir, temel kullanım için 0 en yaygınıdır
+                    If hucreDegeri = ArananDeger Then bulundu = True: Exit For
+                Case 2 ' Joker karakter (Wildcard: *, ?) desteği
+                    If Not IsError(hucreDegeri) Then
+                        If LCase(CStr(hucreDegeri)) Like LCase(CStr(ArananDeger)) Then
+                            bulundu = True: Exit For
+                        End If
+                    End If
+            End Select
+        Next c
+        If bulundu Then Exit For
+    Next r
+    
+    ' Sonucu döndürme
+    If bulundu Then
+        ' Sonuç dizisinden ilgili karşılığı al
+        On Error Resume Next
+        ÇAPRAZARA = arrSonuc(r, c)
+        If IsEmpty(ÇAPRAZARA) Then ÇAPRAZARA = 0
+        On Error GoTo 0
+    Else
+        ' Bulunamadı durumu
+        If IsMissing(Bulunamadi) Then
+            ÇAPRAZARA = CVErr(xlErrNA)
+        Else
+            ÇAPRAZARA = Bulunamadi
+        End If
+    End If
+End Function
+
+'Bir defa çalıştırılması yeterli.
+Sub Calistir_AciklamaEkle()
+    Application.MacroOptions _
+        Macro:="ÇAPRAZARA", _
+        Description:="Excel'deki XLOOKUP (ÇAPRAZARA) fonksiyonunun özel VBA uyarlamasıdır.", _
+        ArgumentDescriptions:=Array( _
+            "ArananDeger: Aranacak olan hücre, sayı veya metin (Örn: A2).", _
+            "ArananDizi: Arama işleminin yapılacağı tek sütun veya satırlık aralık.", _
+            "SonucDizisi: Karşılığındaki sonucun getirileceği aralık.", _
+            "Bulunamadi: Değer bulunamazsa döndürülecek alternatif metin veya değer (İsteğe bağlı).", _
+            "EşleşmeModu: 0 (Tam eşleşme - Varsayılan), 1 (Sonraki küçük), 2 (Joker karakter *, ?).", _
+            "AramaModu: 1 (Baştan sona - Varsayılan), -1 (Sondan başa).")
+End Sub

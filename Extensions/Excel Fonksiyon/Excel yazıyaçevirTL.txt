@@ -1,0 +1,85 @@
+Function YazıyaçevirTL(ByVal Sayi As Double) As String
+    Dim Yuzlukler As Variant, Onluklar As Variant, Birlikler As Variant
+    Dim Lira As Currency, Kurus As Long
+    Dim Milyar As Long, Milyon As Long, Bin As Long, Yuz As Long
+    Dim Sonuc As String
+    
+    If Sayi = 0 Then
+        YazıyaçevirTL = "#Sıfır Türk Lirası'dır"
+        Exit Function
+    End If
+    
+    Lira = Int(Abs(Sayi))
+    Kurus = Round((Abs(Sayi) - Lira) * 100)
+    
+    Yuzlukler = Array("", "Yüz", "İki Yüz", "Üç Yüz", "Dört Yüz", "Beş Yüz", "Altı Yüz", "Yedi Yüz", "Sekiz Yüz", "Dokuz Yüz")
+    Onluklar = Array("", "On", "Yirmi", "Otuz", "Kırk", "Elli", "Altmış", "Yetmiş", "Seksen", "Doksan")
+    Birlikler = Array("", "Bir", "İki", "Üç", "Dört", "Beş", "Altı", "Yedi", "Sekiz", "Dokuz")
+    
+    Milyar = Lira \ 1000000000
+    Milyon = (Lira Mod 1000000000) \ 1000000
+    Bin = (Lira Mod 1000000) \ 1000
+    Yuz = Lira Mod 1000
+    
+    Sonuc = ""
+    
+    If Milyar > 0 Then
+        If Milyar = 1 Then
+            Sonuc = Sonuc & "Bir Milyar "
+        Else
+            Sonuc = Sonuc & CevirUclu(Milyar, Yuzlukler, Onluklar, Birlikler) & " Milyar "
+        End If
+    End If
+    
+    If Milyon > 0 Then
+        If Milyon = 1 Then
+            Sonuc = Sonuc & "Bir Milyon "
+        Else
+            Sonuc = Sonuc & CevirUclu(Milyon, Yuzlukler, Onluklar, Birlikler) & " Milyon "
+        End If
+    End If
+    
+    If Bin > 0 Then
+        If Bin = 1 Then
+            Sonuc = Sonuc & "Bir Bin "
+        Else
+            Sonuc = Sonuc & CevirUclu(Bin, Yuzlukler, Onluklar, Birlikler) & " Bin "
+        End If
+    End If
+    
+    If Yuz > 0 Then
+        Sonuc = Sonuc & CevirUclu(Yuz, Yuzlukler, Onluklar, Birlikler) & " "
+    End If
+    
+    If Lira > 0 Then
+        Sonuc = Trim(Sonuc) & " Türk Lirası"
+    End If
+    
+    If Kurus > 0 Then
+        Dim KurusYazi As String
+        KurusYazi = Onluklar(Kurus \ 10) & IIf((Kurus Mod 10) > 0, " " & Birlikler(Kurus Mod 10), "")
+        If Sonuc <> "" Then Sonuc = Sonuc & " "
+        Sonuc = Sonuc & KurusYazi & " Kuruş"
+    End If
+    
+    If Sayi < 0 Then Sonuc = "Eksi " & Sonuc
+    
+    YazıyaçevirTL = "#" & Trim(Sonuc) & "'dir#"
+End Function
+
+' Private yapılarak Excel formül listesinden gizlendi
+Private Function CevirUclu(ByVal Num As Long, Yuzl As Variant, Onl As Variant, Birl As Variant) As String
+    Dim Y As Long, O As Long, B As Long
+    Dim Txt As String
+    
+    Y = Num \ 100
+    O = (Num Mod 100) \ 10
+    B = Num Mod 10
+    
+    Txt = ""
+    If Y > 0 Then Txt = Yuzl(Y)
+    If O > 0 Then Txt = Txt & IIf(Txt <> "", " ", "") & Onl(O)
+    If B > 0 Then Txt = Txt & IIf(Txt <> "", " ", "") & Birl(B)
+    
+    CevirUclu = Txt
+End Function
