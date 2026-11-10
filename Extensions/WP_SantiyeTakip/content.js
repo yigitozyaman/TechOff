@@ -258,7 +258,6 @@ async function processImageWithWatermark(blobUrl, useWatermark, watermarkInfo, g
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
-// Lightbox açıldığında hem tam çözünürlüklü resmi hem de üst çubuktaki GERÇEK TARİH ve GERÇEK GÖNDEREN bilgisini okur
 async function waitForLightboxImageAndMeta(mainEl, excludeSrcs, maxWaitMs = 3200) {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
@@ -288,7 +287,6 @@ async function waitForLightboxImageAndMeta(mainEl, excludeSrcs, maxWaitMs = 3200
   return null;
 }
 
-// Tam ekran medya görüntüleyicinin (Lightbox) üst çubuğundaki tarih ve gönderen adını okur
 function extractMetaFromLightbox(mainEl) {
   const overlayEl = document.getElementById('gr-archive-overlay');
   const els = Array.from(document.querySelectorAll('span, div'));
@@ -300,7 +298,6 @@ function extractMetaFromLightbox(mainEl) {
     if (el.children.length > 0) continue;
 
     const rect = el.getBoundingClientRect();
-    // Lightbox üst barı (sol üstte gönderen adı, hemen altında tarih/saat bulunur)
     if (rect.top >= 0 && rect.top <= 115 && rect.left < 500 && rect.height > 0) {
       const txt = (el.innerText || '').trim();
       if (txt && txt.length < 50) {
@@ -309,7 +306,6 @@ function extractMetaFromLightbox(mainEl) {
     }
   }
 
-  // Yukarıdan aşağıya sırala (Üstteki gönderen adı, alttaki tarih/saat)
   topTexts.sort((a, b) => a.top - b.top);
 
   let foundDate = null;
@@ -321,7 +317,6 @@ function extractMetaFromLightbox(mainEl) {
       if (!foundDate) foundDate = parsedD;
       continue;
     }
-    // Tarih veya saat değilse ve buton/ikon metni değilse gönderen adıdır
     if (!/^\d{1,2}:\d{2}/.test(item.text) && !/^(Kapat|Close|İndir|Download|İlet|Forward)$/i.test(item.text)) {
       if (!foundSender) {
         foundSender = normalizeSenderString(item.text);
@@ -335,7 +330,7 @@ function extractMetaFromLightbox(mainEl) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'START_SCRAPE') {
     sendResponse({ received: true });
-    runBatchProcess(request.filterKeyword, request.startDate, request.endDate, request.useWatermark);
+    runBatchProcess(request.filterKeyword, request.chatLimit, request.startDate, request.endDate, request.useWatermark);
   }
   return true;
 });
@@ -405,21 +400,17 @@ function isContentPhoto(imgEl) {
   return (imgEl.naturalWidth >= 80 || imgEl.width >= 75);
 }
 
-// Mesaj satırından gönderen adını/numarasını 4 farklı yöntemle okur
 function extractSenderFromRow(rowEl, isGroupChat, chatNameClean) {
-  // 1. Kendi gönderdiğimiz mesaj ise
   if (rowEl.querySelector('.message-out')) {
     return 'Ben';
   }
 
-  // 2. data-pre-plain-text varsa
   const preNode = rowEl.querySelector('[data-pre-plain-text]');
   if (preNode) {
     const parsed = parsePrePlainText(preNode.getAttribute('data-pre-plain-text'));
     if (parsed && parsed.sender) return parsed.sender;
   }
 
-  // 3. Mesaj balonunun solundaki küçük gönderen profil avatarının alt/aria-label niteliği
   const allImgs = Array.from(rowEl.querySelectorAll('img'));
   for (const img of allImgs) {
     if (!isContentPhoto(img)) {
@@ -431,24 +422,21 @@ function extractSenderFromRow(rowEl, isGroupChat, chatNameClean) {
     }
   }
 
-  // 4. Mesaj balonunun üzerindeki gönderen etiketi (renkli başlık veya telefon numarası)
   const senderSpans = Array.from(rowEl.querySelectorAll('span[dir="auto"], span[aria-label]'));
   for (const span of senderSpans) {
-    if (span.closest('span.selectable-text')) continue; // Açıklama metnini atla
+    if (span.closest('span.selectable-text')) continue;
     const txt = (span.innerText || span.getAttribute('aria-label') || '').trim();
     if (!txt || txt.length > 35 || /^\d{1,2}:\d{2}/.test(txt) || /^\+\d+$/.test(txt)) continue;
 
     const digits = txt.replace(/[\s+()-]/g, '');
     if (/^\d{10,15}$/.test(digits)) return digits;
 
-    // Satırın en üst kısmında yer alan kısa gönderen başlığı
     if (span.style && span.style.color) {
       const norm = normalizeSenderString(txt);
       if (norm) return norm;
     }
   }
 
-  // 5. Özel sohbette karşı taraftan geliyorsa
   if (!isGroupChat && rowEl.querySelector('.message-in')) {
     return chatNameClean;
   }
@@ -540,10 +528,12 @@ function getVisibleChatItems(paneSide) {
         const primarySpan = titleSpans[0];
         const primaryTitle = (primarySpan.getAttribute('title') || '').replace(/\s+/g, ' ').trim();
         if (primaryTitle) {
-          items.push({ title: primaryTitle, titleSpan: primarySpan, rowElement: row });
+          // Görsel sıralamayı korumak için Y koordinatını da ekle
+          items.push({ title: primaryTitle, titleSpan: primarySpan, rowElement: row, top: row.getBoundingClientRect().top });
         }
       }
     }
+    items.sort((a, b) => a.top - b.top);
   } else {
     const allSpans = Array.from(paneSide.querySelectorAll('span[title]'));
     for (const sp of allSpans) {
@@ -551,10 +541,11 @@ function getVisibleChatItems(paneSide) {
       if (fontSize >= 15) {
         const title = (sp.getAttribute('title') || '').replace(/\s+/g, ' ').trim();
         if (title) {
-          items.push({ title, titleSpan: sp, rowElement: sp });
+          items.push({ title, titleSpan: sp, rowElement: sp, top: sp.getBoundingClientRect().top });
         }
       }
     }
+    items.sort((a, b) => a.top - b.top);
   }
   return items;
 }
@@ -590,13 +581,17 @@ async function openChatReliable(chatItem, expectedTitle) {
 }
 
 // ============================================================================
-// DİNAMİK FİLTRELİ TOPLU TARAMA MOTORU
+// DİNAMİK FİLTRELİ & ADET LİMİTLİ TOPLU TARAMA MOTORU
 // ============================================================================
-async function runBatchProcess(filterKeyword, startDate, endDate, useWatermark) {
-  showProgressOverlay(`"${filterKeyword}" içeren sohbet/gruplar aranıyor...`);
+async function runBatchProcess(filterKeyword, chatLimit, startDate, endDate, useWatermark) {
+  const isUnlimited = !chatLimit || chatLimit === 'ALL';
+  const numericLimit = isUnlimited ? Infinity : parseInt(chatLimit, 10);
+  const limitLabel = isUnlimited ? 'Tüm sohbetler' : `İlk ${numericLimit} sohbet`;
+
+  showProgressOverlay(`"${filterKeyword}" içeren sohbet/gruplar aranıyor...\n(Tarama Sınırı: ${limitLabel})`);
 
   try {
-    sendStatus(`Sol listede "${filterKeyword}" içeren sohbet/gruplar aranıyor...`);
+    sendStatus(`Sol listede "${filterKeyword}" aranıyor (${limitLabel})...`);
 
     const paneSide = document.querySelector('#pane-side');
     if (!paneSide) {
@@ -606,6 +601,7 @@ async function runBatchProcess(filterKeyword, startDate, endDate, useWatermark) 
 
     const filterRegex = new RegExp(escapeRegex(filterKeyword), 'i');
     const uniqueChatsMap = new Map();
+    const totalScannedSidebarChats = new Set(); // Kaç adet sohbet satırı tarandığını sayar
     let lastScroll = -1;
     let stuck = 0;
 
@@ -614,14 +610,28 @@ async function runBatchProcess(filterKeyword, startDate, endDate, useWatermark) 
 
     while (stuck < 3) {
       const visibleChats = getVisibleChatItems(paneSide);
+      let reachedScanCap = false;
+
       for (const chat of visibleChats) {
+        const normalizedKey = chat.title.toLowerCase();
+
+        // Kullanıcı 10/25/50/100 seçtiyse, listedeki en güncel N sohbete ulaştığımızda taramayı durdur
+        if (!totalScannedSidebarChats.has(normalizedKey)) {
+          if (totalScannedSidebarChats.size >= numericLimit) {
+            reachedScanCap = true;
+            break;
+          }
+          totalScannedSidebarChats.add(normalizedKey);
+        }
+
         if (filterRegex.test(chat.title)) {
-          const normalizedKey = chat.title.toLowerCase();
           if (!uniqueChatsMap.has(normalizedKey)) {
             uniqueChatsMap.set(normalizedKey, chat.title);
           }
         }
       }
+
+      if (reachedScanCap) break;
 
       paneSide.scrollTop += 500;
       await sleep(600);
@@ -629,14 +639,14 @@ async function runBatchProcess(filterKeyword, startDate, endDate, useWatermark) 
       else { stuck = 0; lastScroll = paneSide.scrollTop; }
     }
 
-    const chatList = Array.from(uniqueChatsMap.values());
+    const chatList = Array.from(uniqueChatsMap.values()).slice(0, numericLimit);
     if (chatList.length === 0) {
-      sendStatus(`Uyarı: Sol sohbet listesinde "${filterKeyword}" içeren hiçbir sohbet veya grup bulunamadı.`, true, 'warning');
+      sendStatus(`Uyarı: Taranan ${totalScannedSidebarChats.size} sohbet içinde "${filterKeyword}" içeren hiçbir sohbet veya grup bulunamadı.`, true, 'warning');
       return;
     }
 
     const listPreview = chatList.map((name, idx) => `${idx + 1}. ${name}`).join('\n');
-    sendStatus(`${chatList.length} eşleşen sohbet bulundu:\n${listPreview}\n\nArşivleme başlıyor...`);
+    sendStatus(`${chatList.length} eşleşen sohbet bulundu (${limitLabel}):\n${listPreview}\n\nArşivleme başlıyor...`);
     await sleep(1200);
 
     const groupMasterCsvRows = ['Grup_Adi;Tarih;Fotograf_Adi;Gonderen;Aciklama'];
@@ -661,7 +671,10 @@ async function runBatchProcess(filterKeyword, startDate, endDate, useWatermark) 
       await sleep(400);
       let matchedItem = null;
 
-      for (let s = 0; s < 25; s++) {
+      // Seçilen limite orantılı maksimum kaydırma adımı
+      const maxScrollSteps = isUnlimited ? 40 : Math.max(15, Math.ceil(numericLimit / 3));
+
+      for (let s = 0; s < maxScrollSteps; s++) {
         const visibleChats = getVisibleChatItems(paneSide);
         const match = visibleChats.find(c => c.title.toLowerCase() === normalizedTitle);
         if (match) {
@@ -822,7 +835,6 @@ async function runSingleChatProcess(startDate, endDate, useWatermark, globalSeen
           seenLightboxSrcs.add(fullImg.src);
 
           const verifiedDate = lbResult.lightboxDate || domDate;
-          // Gönderen önceliği: 1. Lightbox üst barı, 2. Satırdan okunan gönderen, 3. Önceki satırdan miras
           const verifiedSender = lbResult.lightboxSender || currentSenderForRow;
 
           if (!verifiedDate || verifiedDate < startDate || verifiedDate > endDate) {
