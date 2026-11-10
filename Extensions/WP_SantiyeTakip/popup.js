@@ -6,12 +6,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('endDate').value = today.toISOString().split('T')[0];
   document.getElementById('startDate').value = lastWeek.toISOString().split('T')[0];
 
+  const openWaBtn = document.getElementById('openWaBtn');
   const batchBtn = document.getElementById('startBatchBtn');
   const filterInput = document.getElementById('filterKeyword');
+  const chatLimitSelect = document.getElementById('chatLimit');
   const saveDefaultBtn = document.getElementById('saveDefaultBtn');
   const defaultHint = document.getElementById('defaultHint');
   const watermarkChk = document.getElementById('useWatermark');
   const statusDiv = document.getElementById('status');
+
+  // Sağ üstteki WhatsApp logosuna tıklanınca açık sekmeye odaklan veya yeni sekmede aç
+  openWaBtn.addEventListener('click', async () => {
+    const waTabs = await chrome.tabs.query({ url: 'https://web.whatsapp.com/*' });
+    if (waTabs && waTabs.length > 0) {
+      const targetTab = waTabs[0];
+      await chrome.tabs.update(targetTab.id, { active: true });
+      await chrome.windows.update(targetTab.windowId, { focused: true });
+    } else {
+      await chrome.tabs.create({ url: 'https://web.whatsapp.com/' });
+    }
+  });
 
   // Tarayıcı yerel hafızasından kayıtlı varsayılan filtreyi yükle
   chrome.storage.local.get(['defaultFilterKeyword'], (result) => {
@@ -20,7 +34,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // "Varsayılan Yap" butonuna tıklandığında kalıcı olarak kaydet
+  // Seçilen sohbet limiti değiştiğinde alt bilgi notunu güncelle
+  chatLimitSelect.addEventListener('change', () => {
+    const val = chatLimitSelect.value;
+    defaultHint.style.color = '#666';
+    defaultHint.innerText = val === 'ALL'
+      ? 'Listedeki tüm sohbetler taranacaktır.'
+      : `En güncel ilk ${val} sohbet içinde filtreleme yapılır.`;
+  });
+
+  // "Varsayılan" butonuna tıklandığında kalıcı olarak kaydet
   saveDefaultBtn.addEventListener('click', () => {
     const newDefault = filterInput.value.trim();
     if (!newDefault) {
@@ -43,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   batchBtn.addEventListener('click', async () => {
     const filterKeyword = filterInput.value.trim();
+    const chatLimit = chatLimitSelect.value; // '10', '25', '50', '100' veya 'ALL'
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
     const useWatermark = watermarkChk.checked;
@@ -64,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
       statusDiv.style.display = 'block';
       statusDiv.style.background = '#ffebee';
       statusDiv.style.color = '#c62828';
-      statusDiv.innerText = 'Hata: Lütfen önce WhatsApp Web sekmesini açın.';
+      statusDiv.innerText = 'Hata: Lütfen önce sağ üstteki WhatsApp ikonuna tıklayarak WhatsApp Web sekmesini açın.';
       return;
     }
 
@@ -77,6 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.tabs.sendMessage(tab.id, {
       action: 'START_SCRAPE',
       filterKeyword: filterKeyword,
+      chatLimit: chatLimit,
       startDate: startDate,
       endDate: endDate,
       useWatermark: useWatermark
